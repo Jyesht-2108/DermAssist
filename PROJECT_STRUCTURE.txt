@@ -1,0 +1,69 @@
+DermAssist - Flutter Project Structure
+======================================
+
+lib/
+├── main.dart                          # App entry point with Provider setup
+├── core/
+│   ├── constants/
+│   │   └── app_constants.dart         # ML model config, preprocessing constants
+│   └── utils/
+│       └── image_utils.dart           # Image preprocessing utilities (resize, normalize)
+├── ml/
+│   └── inference_service.dart         # Single entry point for ML inference
+├── services/
+│   ├── camera_service.dart            # Camera initialization and capture
+│   └── preprocessing_service.dart     # Preprocessing validation layer
+├── state/
+│   └── app_state.dart                 # App-wide state management (Provider)
+└── ui/
+    ├── screens/
+    │   ├── splash_screen.dart         # Animated splash with model loading
+    │   ├── home_screen.dart           # Main screen with "Scan Skin" CTA
+    │   └── camera_screen.dart         # Live camera preview + capture
+    ├── components/                     # (Empty - for future reusable widgets)
+    └── 3d/                            # (Empty - for future 3D visualization)
+
+assets/
+└── models/
+    └── .gitkeep                       # Place skin_model.tflite here
+
+Key Implementation Details:
+===========================
+
+1. ML Layer (✓ Complete)
+   - InferenceService: Singleton with loadModel() and run() methods
+   - Strict rule: Only call inference through InferenceService.run(imageBytes)
+   - Returns InferenceResult with class, confidence, probabilities, timing
+
+2. Preprocessing (✓ Complete)
+   - ImageUtils.preprocessImage(): decode -> resize(224x224) -> normalize
+   - Normalization: (pixel - 127.5) / 127.5 for [-1, 1] range
+   - No invented steps - matches training pipeline
+
+3. Camera Integration (✓ Complete)
+   - CameraService: Singleton for camera lifecycle
+   - Returns clean Uint8List bytes ready for preprocessing
+   - Permissions configured for Android & iOS
+
+4. State Management (✓ Complete)
+   - Provider-based AppState
+   - Tracks: model loading, processing state, results, errors
+   - No blocking on main thread - all async
+
+5. UI Flow (✓ Complete)
+   - Splash -> Home -> Camera -> (Results - TBD)
+   - Clean, minimal design with status indicators
+   - Error handling with graceful fallbacks
+
+Next Steps:
+===========
+1. Add your trained skin_model.tflite to assets/models/
+2. Implement 3D visualization components
+3. Create results screen with heatmap overlay
+4. Add animations and polish
+
+To Run:
+=======
+flutter run
+
+Note: Model file (skin_model.tflite) must be added to assets/models/ before running inference.
