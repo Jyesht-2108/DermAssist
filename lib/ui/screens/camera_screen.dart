@@ -18,11 +18,83 @@ class _CameraScreenState extends State<CameraScreen> {
   final CameraService _cameraService = CameraService();
   bool _isInitializing = true;
   String? _errorMessage;
+  
+  // Real-time inference state
+  bool _isRealTimeMode = false;
+  bool _isProcessingFrame = false;
+  int _frameCount = 0;
+  String? _realtimeLabel;
+  double? _realtimeConfidence;
+  int? _realtimeInferenceTime;
+  String _realtimeRiskLevel = 'Low';
+  bool _hasShownError = false;
 
   @override
   void initState() {
     super.initState();
     _initializeCamera();
+  }
+  
+  void _toggleRealTimeMode() {
+    setState(() {
+      _isRealTimeMode = !_isRealTimeMode;
+      if (!_isRealTimeMode) {
+        // Clear real-time data when disabled
+        _realtimeLabel = null;
+        _realtimeConfidence = null;
+        _realtimeInferenceTime = null;
+        _realtimeRiskLevel = 'Low';
+      }
+    });
+  }
+  
+  Future<void> _processFrameForRealtime() async {
+    if (!_isRealTimeMode || _isProcessingFrame) return;
+    
+    final appState = context.read<AppState>();
+    if (!appState.isModelLoaded) return;
+    
+    _frameCount++;
+    
+    // Process every 5th frame to maintain 60 FPS
+    if (_frameCount % 5 != 0) return;
+    
+    _isProcessingFrame = true;
+    
+    try {
+      // Capture current frame (off main thread)
+      final imageBytes = await _cameraService.captureImage();
+      if (imageBytes == null) {
+        _isProcessingFrame = false;
+        return;
+      }
+      
+      // Run inference off main thread
+      final result = await InferenceService().run(imageBytes);
+      
+      if (result != null && mounted) {
+        setState(() {
+          _realtimeLabel = result.label;
+          _realtimeConfidence = result.confidence;
+          _realtimeInferenceTime = result.inferenceTimeMs;
+          _realtimeRiskLevel = result.riskLevel;
+        });
+      }
+    } catch (e) {
+      // Silent failure - show toast only once
+      if (!_hasShownError && mounted) {
+        _hasShownError = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Real-time inference paused'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } finally {
+      _isProcessingFrame = false;
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -117,8 +189,20 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
+    _isRealTimeMode = false;
     _cameraService.dispose();
     super.dispose();
+  }
+  
+  Color _getRiskColor() {
+    switch (_realtimeRiskLevel) {
+      case 'High':
+        return Colors.red;
+      case 'Medium':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
   }
 
   @override
@@ -159,14 +243,36 @@ class _CameraScreenState extends State<CameraScreen> {
         ),
       );
     }
+    
+    // Trigger real-time processing
+    if (_isRealTimeMode) {
+      Future.microtask(() => _processFrameForRealtime());
+    }
 
     return Stack(
       children: [
-        // Camera preview
+        // Camera preview with colored border for real-time mode
         Center(
           child: AspectRatio(
             aspectRatio: controller.value.aspectRatio,
-            child: CameraPreview(controller),
+            child: Container(
+              decoration: _isRealTimeMode && _realtimeConfidence != null
+                  ? BoxDecoration(
+                      border: Border.all(
+                        color: _getRiskColor(),
+                        width: 4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getRiskColor().withValues(alpha: 0.5),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    )
+                  : null,
+              child: CameraPreview(controller),
+            ),
           ),
         ),
 
@@ -187,26 +293,101 @@ class _CameraScreenState extends State<CameraScreen> {
                 ],
               ),
             ),
-            child: Row(
+            child: Column(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () async {
-                    await _cameraService.dispose();
-                    if (mounted) Navigator.pop(context);
-                  },
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () async {
+                        await _cameraService.dispose();
+                        if (mounted) Navigator.pop(context);
+                      },
+                    ),
+                    const Spacer(),
+                    const Text(
+                      'Scan Skin',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    // Real-time mode toggle
+                    IconButton(
+                      icon: Icon(
+                        _isRealTimeMode ? Icons.visibility : Icons.visibility_off,
+                        color: _isRealTimeMode ? Colors.greenAccent : Colors.white,
+                      ),
+                      onPressed: _toggleRealTimeMode,
+                      tooltip: 'Real-Time Scan',
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                const Text(
-                  'Scan Skin',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                // Real-time info display
+                if (_isRealTimeMode && _realtimeLabel != null)
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _getRiskColor().withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: _getRiskColor(),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _realtimeLabel!,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Confidence: ${(_realtimeConfidence! * 100).toStringAsFixed(1)}%',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              '${_realtimeInferenceTime}ms',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const Spacer(),
-                const SizedBox(width: 48),
               ],
             ),
           ),
