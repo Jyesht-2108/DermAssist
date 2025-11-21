@@ -11,6 +11,7 @@ class Skin3DViewer extends StatefulWidget {
   final List<List<double>>? heatmapGrid;
   final String? predictedClass;
   final Uint8List? capturedImage;
+  final ValueNotifier<Offset?>? selectedPointNotifier;
 
   const Skin3DViewer({
     super.key,
@@ -20,6 +21,7 @@ class Skin3DViewer extends StatefulWidget {
     this.heatmapGrid,
     this.predictedClass,
     this.capturedImage,
+    this.selectedPointNotifier,
   });
 
   @override
@@ -29,36 +31,64 @@ class Skin3DViewer extends StatefulWidget {
 class _Skin3DViewerState extends State<Skin3DViewer>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  double _rotationX = 0.4;
-  double _rotationY = 0.0;
+  double _scale = 1.0;
+  Offset _offset = Offset.zero;
   Offset? _selectedHotspot;
   double? _selectedIntensity;
   ui.Image? _textureImage;
+  double _depthIntensity = 1.0;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(seconds: 4),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
-    )..repeat();
+    );
     _loadTexture();
+    
+    // Listen to external selection changes
+    widget.selectedPointNotifier?.addListener(_onExternalSelection);
   }
 
   @override
   void dispose() {
+    widget.selectedPointNotifier?.removeListener(_onExternalSelection);
     _controller.dispose();
     _textureImage?.dispose();
     super.dispose();
+  }
+
+  void _onExternalSelection() {
+    final point = widget.selectedPointNotifier?.value;
+    if (point != null && mounted) {
+      // Animate to the selected point
+      setState(() {
+        _selectedHotspot = point;
+        // Get intensity at this point
+        if (widget.heatmapGrid != null) {
+          final gridSize = widget.heatmapGrid!.length;
+          final gridX = (point.dx * gridSize).clamp(0, gridSize - 1).toInt();
+          final gridY = (point.dy * gridSize).clamp(0, gridSize - 1).toInt();
+          _selectedIntensity = widget.heatmapGrid![gridY][gridX];
+          _depthIntensity = _selectedIntensity!;
+        }
+      });
+      
+      // Pulse animation
+      _controller.forward(from: 0.0);
+    }
   }
 
   Future<void> _loadTexture() async {
     if (widget.capturedImage != null) {
       final codec = await ui.instantiateImageCodec(widget.capturedImage!);
       final frame = await codec.getNextFrame();
-      setState(() {
-        _textureImage = frame.image;
-      });
+      if (mounted) {
+        setState(() {
+          _textureImage = frame.image;
+        });
+      }
     }
   }
 
@@ -100,50 +130,67 @@ class _Skin3DViewerState extends State<Skin3DViewer>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onPanUpdate: (details) {
+      onScaleStart: (details) {
+        // Store initial values for pinch/pan
+      },
+      onScaleUpdate: (details) {
         setState(() {
-          _rotationY += details.delta.dx * 0.01;
-          _rotationX += details.delta.dy * 0.01;
-          _rotationX = _rotationX.clamp(-math.pi / 2, math.pi / 2);
+          _scale = (_scale * details.scale).clamp(0.5, 3.0);
+          _offset += details.focalPointDelta;
         });
       },
       onTapDown: (details) => _handleTap(details, const Size(300, 300)),
       child: Stack(
         children: [
+          // Main enhanced 2D visualization
           AnimatedBuilder(
             animation: _controller,
             builder: (context, child) {
-              return CustomPaint(
-                size: const Size(300, 300),
-                painter: Skin3DPainter(
-                  rotationX: _rotationX,
-                  rotationY: _rotationY + _controller.value * 0.5 * math.pi,
-                  confidence: widget.confidence,
-                  riskColor: widget.riskColor,
-                  heatmapGrid: widget.heatmapGrid,
-                  textureImage: _textureImage,
+              return Transform.scale(
+                scale: _scale,
+                child: Transform.translate(
+                  offset: _offset,
+                  child: CustomPaint(
+                    size: const Size(300, 300),
+                    painter: EnhancedSkin2DPainter(
+                      confidence: widget.confidence,
+                      riskColor: widget.riskColor,
+                      heatmapGrid: widget.heatmapGrid,
+                      textureImage: _textureImage,
+                      selectedPoint: _selectedHotspot,
+                      pulseAnimation: _controller.value,
+                      depthIntensity: _depthIntensity,
+                    ),
+                  ),
                 ),
               );
             },
           ),
-          // Hotspot info popup
+          
+          // Hotspot info popup with enhanced details
           if (_selectedHotspot != null && _selectedIntensity != null)
             Positioned(
-              left: _selectedHotspot!.dx - 60,
-              top: _selectedHotspot!.dy - 80,
+              left: 150 - 80,
+              top: 20,
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.9),
+                      Colors.black.withValues(alpha: 0.85),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 1,
+                    color: _getIntensityColor(_selectedIntensity!).withValues(alpha: 0.6),
+                    width: 2,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      blurRadius: 10,
+                      color: _getIntensityColor(_selectedIntensity!).withValues(alpha: 0.4),
+                      blurRadius: 20,
+                      spreadRadius: 2,
                     ),
                   ],
                 ),
@@ -151,39 +198,258 @@ class _Skin3DViewerState extends State<Skin3DViewer>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      widget.predictedClass ?? 'Unknown',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: _getIntensityColor(_selectedIntensity!),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: _getIntensityColor(_selectedIntensity!),
+                                blurRadius: 8,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.predictedClass ?? 'Unknown',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Intensity: ${(_selectedIntensity! * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 11,
-                      ),
-                    ),
-                    Text(
-                      'Confidence: ${(widget.confidence * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 11,
-                      ),
-                    ),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Attention', '${(_selectedIntensity! * 100).toStringAsFixed(0)}%'),
+                    _buildDetailRow('Confidence', '${(widget.confidence * 100).toStringAsFixed(0)}%'),
+                    _buildDetailRow('Risk', widget.riskLevel),
                   ],
                 ),
               ),
             ),
+          
+          // Instructions
+          Positioned(
+            bottom: 10,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Pinch to zoom • Tap to inspect',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getIntensityColor(double intensity) {
+    if (intensity < 0.25) return Colors.blue;
+    if (intensity < 0.5) return Colors.green;
+    if (intensity < 0.75) return Colors.yellow;
+    return Colors.red;
+  }
 }
 
+class EnhancedSkin2DPainter extends CustomPainter {
+  final double confidence;
+  final Color riskColor;
+  final List<List<double>>? heatmapGrid;
+  final ui.Image? textureImage;
+  final Offset? selectedPoint;
+  final double pulseAnimation;
+  final double depthIntensity;
+
+  EnhancedSkin2DPainter({
+    required this.confidence,
+    required this.riskColor,
+    this.heatmapGrid,
+    this.textureImage,
+    this.selectedPoint,
+    required this.pulseAnimation,
+    required this.depthIntensity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    
+    // Draw the actual captured image
+    if (textureImage != null) {
+      final paint = Paint()
+        ..filterQuality = FilterQuality.high;
+      
+      canvas.drawImageRect(
+        textureImage!,
+        Rect.fromLTWH(0, 0, textureImage!.width.toDouble(), textureImage!.height.toDouble()),
+        rect,
+        paint,
+      );
+    }
+    
+    // Draw heatmap overlay with depth effect
+    if (heatmapGrid != null) {
+      final gridSize = heatmapGrid!.length;
+      final cellWidth = size.width / gridSize;
+      final cellHeight = size.height / gridSize;
+      
+      for (int y = 0; y < gridSize; y++) {
+        for (int x = 0; x < gridSize; x++) {
+          final intensity = heatmapGrid![y][x];
+          
+          if (intensity > 0.3) {
+            // Draw depth effect (shadow + glow)
+            final cellRect = Rect.fromLTWH(
+              x * cellWidth,
+              y * cellHeight,
+              cellWidth,
+              cellHeight,
+            );
+            
+            final color = _heatmapValueToColor(intensity);
+            
+            // Depth shadow
+            final shadowPaint = Paint()
+              ..color = Colors.black.withValues(alpha: intensity * 0.3)
+              ..maskFilter = MaskFilter.blur(BlurStyle.normal, intensity * 8);
+            canvas.drawRect(cellRect.shift(Offset(2, 2)), shadowPaint);
+            
+            // Glow effect
+            final glowPaint = Paint()
+              ..color = color.withValues(alpha: intensity * 0.5)
+              ..maskFilter = MaskFilter.blur(BlurStyle.normal, intensity * 12);
+            canvas.drawRect(cellRect, glowPaint);
+            
+            // Highlight high-intensity areas
+            if (intensity > 0.7) {
+              final highlightPaint = Paint()
+                ..color = Colors.white.withValues(alpha: (intensity - 0.7) * 0.4)
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+              canvas.drawCircle(cellRect.center, cellWidth * 0.6, highlightPaint);
+            }
+          }
+        }
+      }
+    }
+    
+    // Draw selected point with pulsing effect
+    if (selectedPoint != null && heatmapGrid != null) {
+      final gridSize = heatmapGrid!.length;
+      final gridX = (selectedPoint!.dx * gridSize).clamp(0, gridSize - 1).toInt();
+      final gridY = (selectedPoint!.dy * gridSize).clamp(0, gridSize - 1).toInt();
+      final intensity = heatmapGrid![gridY][gridX];
+      
+      final actualX = (gridX / gridSize) * size.width;
+      final actualY = (gridY / gridSize) * size.height;
+      final center = Offset(actualX, actualY);
+      
+      // Pulsing ring
+      final pulseRadius = 20 + (pulseAnimation * 15);
+      final pulsePaint = Paint()
+        ..color = _heatmapValueToColor(intensity).withValues(alpha: 1.0 - pulseAnimation)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+      canvas.drawCircle(center, pulseRadius, pulsePaint);
+      
+      // Inner glow
+      final glowPaint = Paint()
+        ..color = _heatmapValueToColor(intensity).withValues(alpha: 0.6)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
+      canvas.drawCircle(center, 25, glowPaint);
+      
+      // Center marker
+      final markerPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(center, 15, markerPaint);
+      
+      // Crosshair
+      canvas.drawLine(
+        Offset(center.dx - 10, center.dy),
+        Offset(center.dx + 10, center.dy),
+        markerPaint,
+      );
+      canvas.drawLine(
+        Offset(center.dx, center.dy - 10),
+        Offset(center.dx, center.dy + 10),
+        markerPaint,
+      );
+    }
+    
+    // Draw border
+    final borderPaint = Paint()
+      ..color = riskColor.withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRect(rect, borderPaint);
+  }
+
+  Color _heatmapValueToColor(double value) {
+    if (value < 0.25) {
+      final t = value / 0.25;
+      return Color.fromRGBO(0, (t * 255).toInt(), 255, 0.9);
+    } else if (value < 0.5) {
+      final t = (value - 0.25) / 0.25;
+      return Color.fromRGBO(0, 255, (255 * (1 - t)).toInt(), 0.9);
+    } else if (value < 0.75) {
+      final t = (value - 0.5) / 0.25;
+      return Color.fromRGBO((t * 255).toInt(), 255, 0, 0.9);
+    } else {
+      final t = (value - 0.75) / 0.25;
+      return Color.fromRGBO(255, (255 * (1 - t)).toInt(), 0, 0.9);
+    }
+  }
+
+  @override
+  bool shouldRepaint(EnhancedSkin2DPainter oldDelegate) => true;
+}
+
+// Keep old painter for reference but rename
 class Skin3DPainter extends CustomPainter {
   final double rotationX;
   final double rotationY;

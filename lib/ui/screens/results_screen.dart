@@ -27,6 +27,13 @@ class ResultsScreen extends StatefulWidget {
 class _ResultsScreenState extends State<ResultsScreen> {
   bool _showHeatmap = false;
   double _heatmapOpacity = 0.6;
+  final ValueNotifier<Offset?> _selectedPointNotifier = ValueNotifier<Offset?>(null);
+
+  @override
+  void dispose() {
+    _selectedPointNotifier.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +110,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 heatmapGrid: widget.result.heatmap?.grid,
                                 predictedClass: widget.result.label,
                                 capturedImage: widget.originalImage,
+                                selectedPointNotifier: _selectedPointNotifier,
                               ),
                               const SizedBox(height: 10),
                               Text(
@@ -153,35 +161,49 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 ),
                                 const SizedBox(height: 16),
                                 // Image with heatmap overlay
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: AspectRatio(
-                                    aspectRatio: 1.0,
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        // Original image
-                                        Image.memory(
-                                          widget.originalImage!,
-                                          fit: BoxFit.cover,
-                                        ),
-                                        // Heatmap overlay
-                                        if (_showHeatmap)
-                                          Opacity(
-                                            opacity: _heatmapOpacity,
-                                            child: FutureBuilder<ui.Image>(
-                                              future: _createHeatmapImage(),
-                                              builder: (context, snapshot) {
-                                                if (snapshot.hasData) {
-                                                  return CustomPaint(
-                                                    painter: HeatmapPainter(snapshot.data!),
-                                                  );
-                                                }
-                                                return const SizedBox();
-                                              },
-                                            ),
+                                GestureDetector(
+                                  onTapDown: (details) {
+                                    if (_showHeatmap && widget.result.heatmap != null) {
+                                      final box = context.findRenderObject() as RenderBox?;
+                                      if (box != null) {
+                                        final localPosition = details.localPosition;
+                                        // Normalize to 0-1 range
+                                        final normalizedX = localPosition.dx / box.size.width;
+                                        final normalizedY = localPosition.dy / box.size.height;
+                                        _selectedPointNotifier.value = Offset(normalizedX, normalizedY);
+                                      }
+                                    }
+                                  },
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: AspectRatio(
+                                      aspectRatio: 1.0,
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          // Original image
+                                          Image.memory(
+                                            widget.originalImage!,
+                                            fit: BoxFit.cover,
                                           ),
-                                      ],
+                                          // Heatmap overlay
+                                          if (_showHeatmap)
+                                            Opacity(
+                                              opacity: _heatmapOpacity,
+                                              child: FutureBuilder<ui.Image>(
+                                                future: _createHeatmapImage(),
+                                                builder: (context, snapshot) {
+                                                  if (snapshot.hasData) {
+                                                    return CustomPaint(
+                                                      painter: HeatmapPainter(snapshot.data!),
+                                                    );
+                                                  }
+                                                  return const SizedBox();
+                                                },
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
