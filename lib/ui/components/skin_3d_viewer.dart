@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart' as vector;
 
@@ -8,6 +10,7 @@ class Skin3DViewer extends StatefulWidget {
   final Color riskColor;
   final List<List<double>>? heatmapGrid;
   final String? predictedClass;
+  final Uint8List? capturedImage;
 
   const Skin3DViewer({
     super.key,
@@ -16,6 +19,7 @@ class Skin3DViewer extends StatefulWidget {
     required this.riskColor,
     this.heatmapGrid,
     this.predictedClass,
+    this.capturedImage,
   });
 
   @override
@@ -25,24 +29,37 @@ class Skin3DViewer extends StatefulWidget {
 class _Skin3DViewerState extends State<Skin3DViewer>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  double _rotationX = 0.3;
+  double _rotationX = 0.4;
   double _rotationY = 0.0;
   Offset? _selectedHotspot;
   double? _selectedIntensity;
+  ui.Image? _textureImage;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(seconds: 3),
+      duration: const Duration(seconds: 4),
       vsync: this,
     )..repeat();
+    _loadTexture();
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _textureImage?.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadTexture() async {
+    if (widget.capturedImage != null) {
+      final codec = await ui.instantiateImageCodec(widget.capturedImage!);
+      final frame = await codec.getNextFrame();
+      setState(() {
+        _textureImage = frame.image;
+      });
+    }
   }
 
   void _handleTap(TapDownDetails details, Size size) {
@@ -100,10 +117,11 @@ class _Skin3DViewerState extends State<Skin3DViewer>
                 size: const Size(300, 300),
                 painter: Skin3DPainter(
                   rotationX: _rotationX,
-                  rotationY: _rotationY + _controller.value * 2 * math.pi,
+                  rotationY: _rotationY + _controller.value * 0.5 * math.pi,
                   confidence: widget.confidence,
                   riskColor: widget.riskColor,
                   heatmapGrid: widget.heatmapGrid,
+                  textureImage: _textureImage,
                 ),
               );
             },
@@ -172,6 +190,7 @@ class Skin3DPainter extends CustomPainter {
   final double confidence;
   final Color riskColor;
   final List<List<double>>? heatmapGrid;
+  final ui.Image? textureImage;
 
   Skin3DPainter({
     required this.rotationX,
@@ -179,123 +198,145 @@ class Skin3DPainter extends CustomPainter {
     required this.confidence,
     required this.riskColor,
     this.heatmapGrid,
+    this.textureImage,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width * 0.35;
+    final baseSize = size.width * 0.7;
 
-    // Create 3D sphere mesh
-    final int latitudes = 20;
-    final int longitudes = 20;
+    // Create 3D surface mesh (flat surface with depth from heatmap)
+    final int gridResolution = 30;
+    final points = <_Point3D>[];
+    final projectedPoints = <Offset>[];
 
-    final points = <Offset>[];
-    final colors = <Color>[];
+    // Generate 3D mesh points
+    for (int y = 0; y < gridResolution; y++) {
+      for (int x = 0; x < gridResolution; x++) {
+        // Normalized coordinates (0 to 1)
+        final u = x / (gridResolution - 1);
+        final v = y / (gridResolution - 1);
 
-    for (int lat = 0; lat < latitudes; lat++) {
-      final theta = (lat / latitudes) * math.pi;
-      for (int lon = 0; lon < longitudes; lon++) {
-        final phi = (lon / longitudes) * 2 * math.pi;
+        // Map to surface coordinates (-1 to 1)
+        final surfaceX = (u - 0.5) * baseSize;
+        final surfaceY = (v - 0.5) * baseSize;
 
-        // 3D coordinates
-        var x = radius * math.sin(theta) * math.cos(phi);
-        var y = radius * math.sin(theta) * math.sin(phi);
-        var z = radius * math.cos(theta);
-
-        // Apply rotations
-        final point = _rotate3D(x, y, z, rotationX, rotationY);
-
-        // Project to 2D
-        final scale = 1.0 / (1.0 + point.z / 500);
-        final projected = Offset(
-          center.dx + point.x * scale,
-          center.dy + point.y * scale,
-        );
-
-        points.add(projected);
-
-        // Color based on heatmap if available, otherwise use confidence
-        Color pointColor;
+        // Get depth from heatmap (creates 3D relief)
+        double depth = 0.0;
         if (heatmapGrid != null) {
-          // Map sphere coordinates to heatmap grid
           final gridSize = heatmapGrid!.length;
-          final u = lon / longitudes;
-          final v = lat / latitudes;
+          final gridX = (u * gridSize).clamp(0, gridSize - 1).toInt();
+          final gridY = (v * gridSize).clamp(0, gridSize - 1).toInt();
+          final heatValue = heatmapGrid![gridY][gridX];
+          // Higher heatmap values = more depth (raised surface)
+          depth = heatValue * 50.0;
+        }
+
+        points.add(_Point3D(surfaceX, surfaceY, depth, u, v));
+      }
+    }
+
+    // Apply 3D transformations and project to 2D
+    for (final point in points) {
+      final rotated = _rotate3D(point.x, point.y, point.z, rotationX, rotationY);
+      
+      // Perspective projection
+      final distance = 400.0;
+      final scale = distance / (distance + rotated.z);
+      final projected = Offset(
+        center.dx + rotated.x * scale,
+        center.dy + rotated.y * scale,
+      );
+      projectedPoints.add(projected);
+    }
+
+    // Draw mesh with texture and heatmap overlay
+    final paint = Paint()
+      ..style = PaintingStyle.fill
+      ..filterQuality = FilterQuality.high;
+
+    // Draw quads
+    for (int y = 0; y < gridResolution - 1; y++) {
+      for (int x = 0; x < gridResolution - 1; x++) {
+        final i = y * gridResolution + x;
+        
+        final p1 = projectedPoints[i];
+        final p2 = projectedPoints[i + 1];
+        final p3 = projectedPoints[i + gridResolution];
+        final p4 = projectedPoints[i + gridResolution + 1];
+
+        // Get depth for lighting
+        final avgZ = (points[i].z + points[i + 1].z + 
+                     points[i + gridResolution].z + points[i + gridResolution + 1].z) / 4;
+        
+        // Calculate color based on texture and heatmap
+        Color quadColor;
+        if (heatmapGrid != null) {
+          final gridSize = heatmapGrid!.length;
+          final u = points[i].u;
+          final v = points[i].v;
           final gridX = (u * gridSize).clamp(0, gridSize - 1).toInt();
           final gridY = (v * gridSize).clamp(0, gridSize - 1).toInt();
           final heatValue = heatmapGrid![gridY][gridX];
           
-          // Map heatmap value to color (blue → green → yellow → red)
-          pointColor = _heatmapValueToColor(heatValue);
+          quadColor = _heatmapValueToColor(heatValue);
           
-          // Add glow for high intensity areas
-          if (heatValue > 0.7) {
-            pointColor = Color.lerp(pointColor, Colors.white, 0.3)!;
-          }
+          // Add lighting based on depth
+          final lighting = (1.0 + avgZ / 50.0).clamp(0.7, 1.3);
+          quadColor = Color.fromRGBO(
+            ((quadColor.r * 255.0) * lighting).clamp(0, 255).toInt(),
+            ((quadColor.g * 255.0) * lighting).clamp(0, 255).toInt(),
+            ((quadColor.b * 255.0) * lighting).clamp(0, 255).toInt(),
+            0.9,
+          );
         } else {
-          // Fallback to original coloring
-          final intensity = (math.cos(theta) + 1) / 2;
-          final colorIntensity = confidence * intensity;
-          pointColor = Color.lerp(
-            Colors.blue.shade100,
+          quadColor = Color.lerp(
+            Colors.blue.shade200,
             riskColor,
-            colorIntensity,
+            confidence,
           )!;
         }
-        colors.add(pointColor);
+
+        // Draw quad
+        paint.color = quadColor;
+        final path = Path()
+          ..moveTo(p1.dx, p1.dy)
+          ..lineTo(p2.dx, p2.dy)
+          ..lineTo(p4.dx, p4.dy)
+          ..lineTo(p3.dx, p3.dy)
+          ..close();
+        canvas.drawPath(path, paint);
+
+        // Draw mesh lines for 3D effect
+        paint
+          ..color = Colors.white.withValues(alpha: 0.15)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5;
+        canvas.drawPath(path, paint);
+        paint.style = PaintingStyle.fill;
       }
     }
 
-    // Draw mesh
-    final paint = Paint()..style = PaintingStyle.fill;
-
-    for (int i = 0; i < points.length - longitudes - 1; i++) {
-      if ((i + 1) % longitudes == 0) continue;
-
-      final p1 = points[i];
-      final p2 = points[i + 1];
-      final p3 = points[i + longitudes];
-      final p4 = points[i + longitudes + 1];
-
-      // Draw quad as two triangles
-      paint.color = colors[i].withValues(alpha: 0.8);
-
-      final path = Path()
-        ..moveTo(p1.dx, p1.dy)
-        ..lineTo(p2.dx, p2.dy)
-        ..lineTo(p4.dx, p4.dy)
-        ..lineTo(p3.dx, p3.dy)
-        ..close();
-
-      canvas.drawPath(path, paint);
-
-      // Draw edges for mesh effect
-      paint
-        ..color = Colors.white.withValues(alpha: 0.2)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5;
-      canvas.drawPath(path, paint);
-      paint.style = PaintingStyle.fill;
+    // Draw glow around high-intensity areas
+    if (heatmapGrid != null) {
+      final glowPaint = Paint()
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
+      
+      for (int i = 0; i < points.length; i++) {
+        final gridSize = heatmapGrid!.length;
+        final u = points[i].u;
+        final v = points[i].v;
+        final gridX = (u * gridSize).clamp(0, gridSize - 1).toInt();
+        final gridY = (v * gridSize).clamp(0, gridSize - 1).toInt();
+        final heatValue = heatmapGrid![gridY][gridX];
+        
+        if (heatValue > 0.7) {
+          glowPaint.color = _heatmapValueToColor(heatValue).withValues(alpha: 0.4);
+          canvas.drawCircle(projectedPoints[i], 8, glowPaint);
+        }
+      }
     }
-
-    // Draw hotspot (affected area)
-    final hotspotPaint = Paint()
-      ..color = riskColor.withValues(alpha: 0.6)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20);
-
-    canvas.drawCircle(
-      Offset(center.dx + 20, center.dy - 10),
-      radius * 0.3 * confidence,
-      hotspotPaint,
-    );
-
-    // Draw glow effect
-    final glowPaint = Paint()
-      ..color = riskColor.withValues(alpha: 0.3)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30);
-
-    canvas.drawCircle(center, radius * 1.2, glowPaint);
   }
 
   vector.Vector3 _rotate3D(double x, double y, double z, double rx, double ry) {
@@ -336,4 +377,14 @@ class Skin3DPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(Skin3DPainter oldDelegate) => true;
+}
+
+class _Point3D {
+  final double x;
+  final double y;
+  final double z;
+  final double u; // Texture coordinate
+  final double v; // Texture coordinate
+
+  _Point3D(this.x, this.y, this.z, this.u, this.v);
 }

@@ -102,6 +102,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 riskColor: riskColor,
                                 heatmapGrid: widget.result.heatmap?.grid,
                                 predictedClass: widget.result.label,
+                                capturedImage: widget.originalImage,
                               ),
                               const SizedBox(height: 10),
                               Text(
