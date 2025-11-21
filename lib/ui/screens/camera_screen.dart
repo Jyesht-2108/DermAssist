@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../services/camera_service.dart';
 import '../../ml/inference_service.dart';
 import '../../state/app_state.dart';
@@ -24,6 +25,18 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
+    // Request camera permission
+    final status = await Permission.camera.request();
+    
+    if (!status.isGranted) {
+      setState(() {
+        _isInitializing = false;
+        _errorMessage = 'Camera permission denied';
+      });
+      return;
+    }
+
+    // Initialize camera
     final success = await _cameraService.initialize();
     setState(() {
       _isInitializing = false;
@@ -41,25 +54,39 @@ class _CameraScreenState extends State<CameraScreen> {
       return;
     }
 
-    appState.setProcessing(true);
+    try {
+      appState.setProcessing(true);
 
-    // Capture image
-    final imageBytes = await _cameraService.captureImage();
-    if (imageBytes == null) {
+      // Capture image
+      final imageBytes = await _cameraService.captureImage();
+      if (imageBytes == null) {
+        appState.setProcessing(false);
+        _showError('Failed to capture image');
+        return;
+      }
+
+      // Show capture feedback
+      if (mounted) {
+        _showInfo('Processing image...');
+      }
+
+      // Run inference
+      final result = await InferenceService().run(imageBytes);
+      appState.setResult(result);
+
+      if (result != null && mounted) {
+        // Show results
+        _showSuccess(
+          'Analysis complete!\n'
+          'Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%\n'
+          'Time: ${result.inferenceTimeMs}ms'
+        );
+      } else {
+        _showError('Analysis failed - please try again');
+      }
+    } catch (e) {
       appState.setProcessing(false);
-      _showError('Failed to capture image');
-      return;
-    }
-
-    // Run inference
-    final result = await InferenceService().run(imageBytes);
-    appState.setResult(result);
-
-    if (result != null && mounted) {
-      // Navigate to results screen (to be implemented)
-      _showSuccess('Analysis complete: ${result.confidence.toStringAsFixed(2)}');
-    } else {
-      _showError('Analysis failed');
+      _showError('Error: ${e.toString()}');
     }
   }
 
@@ -79,6 +106,18 @@ class _CameraScreenState extends State<CameraScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showInfo(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.blue,
+        duration: const Duration(seconds: 1),
       ),
     );
   }
@@ -91,9 +130,15 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          await _cameraService.dispose();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
         child: _isInitializing
             ? const Center(
                 child: CircularProgressIndicator(color: Colors.white),
@@ -106,6 +151,7 @@ class _CameraScreenState extends State<CameraScreen> {
                     ),
                   )
                 : _buildCameraView(),
+        ),
       ),
     );
   }
@@ -152,7 +198,10 @@ class _CameraScreenState extends State<CameraScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () async {
+                    await _cameraService.dispose();
+                    if (mounted) Navigator.pop(context);
+                  },
                 ),
                 const Spacer(),
                 const Text(
@@ -166,6 +215,32 @@ class _CameraScreenState extends State<CameraScreen> {
                 const Spacer(),
                 const SizedBox(width: 48),
               ],
+            ),
+          ),
+        ),
+
+        // Scan guide overlay
+        Center(
+          child: Container(
+            width: 250,
+            height: 250,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.5),
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Center(
+              child: Text(
+                'Position skin area\nwithin frame',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ),
         ),
@@ -185,11 +260,20 @@ class _CameraScreenState extends State<CameraScreen> {
                     height: 80,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white,
+                      color: appState.isProcessing 
+                          ? Colors.grey.shade300 
+                          : Colors.white,
                       border: Border.all(
                         color: Colors.white,
                         width: 4,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
                     child: appState.isProcessing
                         ? const Padding(

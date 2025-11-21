@@ -1,0 +1,97 @@
+DermAssist - Capture Flow Documentation
+========================================
+
+COMPLETE FUNCTIONAL FLOW:
+=========================
+
+1. HOME SCREEN (lib/ui/screens/home_screen.dart)
+   ├─ Shows "AI Model Ready" status when model loads
+   ├─ "Scan Skin" button enabled only when model is ready
+   └─ On tap → Navigate to CameraScreen
+
+2. CAMERA SCREEN (lib/ui/screens/camera_screen.dart)
+   ├─ Request camera permission (Permission.camera.request())
+   ├─ Initialize CameraService
+   ├─ Display live camera preview
+   ├─ Capture button at bottom
+   └─ On capture tap → _captureAndAnalyze()
+
+3. CAPTURE & ANALYZE FLOW (_captureAndAnalyze method)
+   ├─ Check if model is loaded
+   ├─ Set processing state (shows loading indicator)
+   ├─ Call CameraService.captureImage() → Returns Uint8List
+   ├─ Call InferenceService.run(imageBytes)
+   │   ├─ ImageUtils.preprocessImage(imageBytes)
+   │   │   ├─ Decode image from bytes
+   │   │   ├─ Resize to 224x224
+   │   │   └─ Normalize to [-1, 1] range
+   │   ├─ Run TFLite inference
+   │   └─ Return InferenceResult
+   ├─ Update AppState with result
+   └─ Show success/error message
+
+4. PREPROCESSING PIPELINE (lib/core/utils/image_utils.dart)
+   ├─ bytesToImage() - Decode Uint8List to img.Image
+   ├─ resizeImage() - Resize to 224x224 with linear interpolation
+   ├─ normalizeImage() - Apply (pixel - 127.5) / 127.5
+   └─ Returns List<List<List<double>>> ready for model
+
+5. INFERENCE SERVICE (lib/ml/inference_service.dart)
+   ├─ Single entry point: run(imageBytes)
+   ├─ Calls preprocessing automatically
+   ├─ Runs TFLite model inference
+   ├─ Tracks inference time
+   └─ Returns InferenceResult with:
+       - classIndex (predicted class)
+       - confidence (probability)
+       - probabilities (all class probabilities)
+       - inferenceTimeMs (performance metric)
+
+PERMISSIONS CONFIGURED:
+=======================
+✓ Android: CAMERA permission in AndroidManifest.xml
+✓ iOS: NSCameraUsageDescription in Info.plist
+✓ Runtime: permission_handler requests permission before camera init
+
+RESOURCE MANAGEMENT:
+====================
+✓ Camera disposed on screen exit (dispose() method)
+✓ Camera disposed on back button (PopScope widget)
+✓ Camera disposed on navigation back (back button handler)
+✓ Singleton pattern prevents multiple camera instances
+
+ERROR HANDLING:
+===============
+✓ Permission denied → Show error message
+✓ Camera init failed → Show error message
+✓ Capture failed → Show error, reset processing state
+✓ Inference failed → Show error, reset processing state
+✓ All errors handled gracefully with user feedback
+
+STATE MANAGEMENT:
+=================
+✓ AppState tracks: model loading, processing, results, errors
+✓ UI updates automatically via Provider/Consumer
+✓ Processing state shows loading indicator on capture button
+✓ No blocking operations on main thread
+
+ALIGNMENT WITH CONTEXT.MD:
+===========================
+✓ Single inference entry point (InferenceService.run)
+✓ Preprocessing matches training pipeline exactly
+✓ No blocking on main thread (all async)
+✓ Graceful error handling with fallbacks
+✓ Clean separation of concerns
+✓ Privacy-first (all processing on-device)
+
+READY TO TEST:
+==============
+1. Add skin_model.tflite to assets/models/
+2. Run: flutter run
+3. Tap "Scan Skin" on home screen
+4. Grant camera permission
+5. Capture image
+6. View inference results
+
+Note: Without actual model file, inference will fail gracefully
+      and show "Analysis failed" message.

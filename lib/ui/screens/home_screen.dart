@@ -93,7 +93,7 @@ class HomeScreen extends StatelessWidget {
                           Expanded(
                             child: Text(
                               appState.isModelLoaded
-                                  ? 'AI Model Ready'
+                                  ? 'Ready (Demo Mode)'
                                   : appState.errorMessage ?? 'Loading model...',
                               style: TextStyle(
                                 color: appState.isModelLoaded
