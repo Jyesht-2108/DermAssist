@@ -145,20 +145,49 @@ class _CameraScreenState extends State<CameraScreen> {
 
       // Run inference
       final result = await InferenceService().run(imageBytes);
-      appState.setResult(result);
+      
+      if (result == null) {
+        appState.setProcessing(false);
+        _showError('Analysis failed - please try again');
+        return;
+      }
 
-      if (result != null && mounted) {
+      // Generate heatmap off main thread
+      if (mounted) {
+        _showInfo('Generating heatmap...');
+      }
+      
+      final heatmap = await InferenceService().generateHeatmap(
+        imageBytes,
+        result.classIndex,
+      );
+
+      // Create result with heatmap
+      final resultWithHeatmap = InferenceResult(
+        classIndex: result.classIndex,
+        confidence: result.confidence,
+        probabilities: result.probabilities,
+        inferenceTimeMs: result.inferenceTimeMs,
+        label: result.label,
+        riskLevel: result.riskLevel,
+        heatmap: heatmap,
+      );
+
+      appState.setResult(resultWithHeatmap);
+
+      if (mounted) {
         // Navigate to results screen
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ResultsScreen(result: result),
+            builder: (context) => ResultsScreen(
+              result: resultWithHeatmap,
+              originalImage: imageBytes,
+            ),
           ),
         );
         // Reset processing state after returning
         appState.setProcessing(false);
-      } else {
-        _showError('Analysis failed - please try again');
       }
     } catch (e) {
       appState.setProcessing(false);

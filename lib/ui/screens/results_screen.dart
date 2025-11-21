@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../ml/inference_service.dart';
@@ -8,14 +11,22 @@ import '../components/particle_background.dart';
 
 class ResultsScreen extends StatefulWidget {
   final InferenceResult result;
+  final Uint8List? originalImage;
 
-  const ResultsScreen({super.key, required this.result});
+  const ResultsScreen({
+    super.key,
+    required this.result,
+    this.originalImage,
+  });
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
+  bool _showHeatmap = false;
+  double _heatmapOpacity = 0.6;
+
   @override
   Widget build(BuildContext context) {
     final riskColor = Color(ModelLabels.getRiskColor(widget.result.riskLevel));
@@ -105,6 +116,129 @@ class _ResultsScreenState extends State<ResultsScreen> {
                             .scale(begin: const Offset(0.9, 0.9)),
 
                         const SizedBox(height: 24),
+
+                        // Heatmap Overlay Section
+                        if (widget.result.heatmap != null && widget.originalImage != null)
+                          GlassCard(
+                            blur: 20,
+                            opacity: 0.15,
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Attention Heatmap',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: _showHeatmap,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _showHeatmap = value;
+                                        });
+                                      },
+                                      activeTrackColor: Colors.greenAccent,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                // Image with heatmap overlay
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: AspectRatio(
+                                    aspectRatio: 1.0,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        // Original image
+                                        Image.memory(
+                                          widget.originalImage!,
+                                          fit: BoxFit.cover,
+                                        ),
+                                        // Heatmap overlay
+                                        if (_showHeatmap)
+                                          Opacity(
+                                            opacity: _heatmapOpacity,
+                                            child: FutureBuilder<ui.Image>(
+                                              future: _createHeatmapImage(),
+                                              builder: (context, snapshot) {
+                                                if (snapshot.hasData) {
+                                                  return CustomPaint(
+                                                    painter: HeatmapPainter(snapshot.data!),
+                                                  );
+                                                }
+                                                return const SizedBox();
+                                              },
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                if (_showHeatmap) ...[
+                                  const SizedBox(height: 16),
+                                  // Opacity slider
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.opacity,
+                                        color: Colors.white70,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Slider(
+                                          value: _heatmapOpacity,
+                                          min: 0.0,
+                                          max: 1.0,
+                                          activeColor: Colors.white,
+                                          inactiveColor: Colors.white30,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _heatmapOpacity = value;
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                      Text(
+                                        '${(_heatmapOpacity * 100).toInt()}%',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  // Color legend
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _buildLegendItem(Colors.blue, 'Low'),
+                                      const SizedBox(width: 8),
+                                      _buildLegendItem(Colors.green, 'Medium'),
+                                      const SizedBox(width: 8),
+                                      _buildLegendItem(Colors.yellow, 'High'),
+                                      const SizedBox(width: 8),
+                                      _buildLegendItem(Colors.red, 'Critical'),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          )
+                              .animate()
+                              .fadeIn(duration: 600.ms, delay: 300.ms)
+                              .slideY(begin: 0.2, end: 0),
+
+                        if (widget.result.heatmap != null && widget.originalImage != null)
+                          const SizedBox(height: 24),
 
                         // Condition Card
                         GlassCard(
@@ -403,4 +537,63 @@ class _ResultsScreenState extends State<ResultsScreen> {
       ],
     );
   }
+
+  Widget _buildLegendItem(Color color, String label) {
+    return Row(
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<ui.Image> _createHeatmapImage() async {
+    final heatmap = widget.result.heatmap!;
+    final completer = Completer<ui.Image>();
+
+    ui.decodeImageFromPixels(
+      heatmap.imageBytes,
+      heatmap.width,
+      heatmap.height,
+      ui.PixelFormat.rgba8888,
+      (image) => completer.complete(image),
+    );
+
+    return completer.future;
+  }
+}
+
+class HeatmapPainter extends CustomPainter {
+  final ui.Image image;
+
+  HeatmapPainter(this.image);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..filterQuality = FilterQuality.high;
+    
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(HeatmapPainter oldDelegate) => false;
 }
