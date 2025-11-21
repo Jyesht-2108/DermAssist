@@ -8,6 +8,7 @@ import '../../ml/model_labels.dart';
 import '../components/glass_card.dart';
 import '../components/skin_3d_viewer.dart';
 import '../components/particle_background.dart';
+import 'multi_region_screen.dart';
 
 class ResultsScreen extends StatefulWidget {
   final InferenceResult result;
@@ -99,10 +100,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 confidence: widget.result.confidence,
                                 riskLevel: widget.result.riskLevel,
                                 riskColor: riskColor,
+                                heatmapGrid: widget.result.heatmap?.grid,
+                                predictedClass: widget.result.label,
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                'Drag to rotate • Pinch to zoom',
+                                'Drag to rotate • Tap hotspots for details',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.white.withValues(alpha: 0.6),
@@ -487,6 +490,71 @@ class _ResultsScreenState extends State<ResultsScreen> {
                             .animate()
                             .fadeIn(duration: 600.ms, delay: 800.ms)
                             .slideY(begin: 0.3, end: 0),
+
+                        // Multi-Region button
+                        if (widget.originalImage != null)
+                          Container(
+                            width: double.infinity,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.purple.withValues(alpha: 0.7),
+                                  Colors.blue.withValues(alpha: 0.6),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.purple.withValues(alpha: 0.3),
+                                  blurRadius: 20,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => MultiRegionScreen(
+                                        originalImage: widget.originalImage!,
+                                        imageWidth: 224,
+                                        imageHeight: 224,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.grid_on_rounded,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        'Multi-Region Analysis',
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                              .animate()
+                              .fadeIn(duration: 600.ms, delay: 1000.ms)
+                              .slideY(begin: 0.3, end: 0),
 
                         const SizedBox(height: 20),
                       ],

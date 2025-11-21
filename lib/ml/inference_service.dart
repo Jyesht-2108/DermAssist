@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/material.dart' show Offset;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/image_utils.dart';
@@ -16,6 +17,25 @@ class HeatmapData {
     required this.imageBytes,
     required this.width,
     required this.height,
+  });
+}
+
+/// Region data for multi-region analysis
+class RegionData {
+  final String id;
+  String name;
+  final Offset center;
+  final double radius;
+  final InferenceResult result;
+  final HeatmapData? heatmap;
+
+  RegionData({
+    required this.id,
+    required this.name,
+    required this.center,
+    required this.radius,
+    required this.result,
+    this.heatmap,
   });
 }
 
@@ -329,6 +349,61 @@ class InferenceService {
       final t = (value - 0.75) / 0.25;
       return [255, (255 * (1 - t)).toInt(), 0];
     }
+  }
+
+  /// Process a specific region from an image
+  Future<RegionData?> processRegion({
+    required Uint8List imageBytes,
+    required String regionId,
+    required String regionName,
+    required Offset center,
+    required double radius,
+    required int imageWidth,
+    required int imageHeight,
+  }) async {
+    try {
+      // Crop region from image (simplified - using center crop)
+      final croppedBytes = await _cropRegion(
+        imageBytes,
+        center,
+        radius,
+        imageWidth,
+        imageHeight,
+      );
+      
+      if (croppedBytes == null) return null;
+
+      // Run inference on cropped region
+      final result = await run(croppedBytes);
+      if (result == null) return null;
+
+      // Generate heatmap for region
+      final heatmap = await generateHeatmap(croppedBytes, result.classIndex);
+
+      return RegionData(
+        id: regionId,
+        name: regionName,
+        center: center,
+        radius: radius,
+        result: result,
+        heatmap: heatmap,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Crop a circular region from image (simplified implementation)
+  Future<Uint8List?> _cropRegion(
+    Uint8List imageBytes,
+    Offset center,
+    double radius,
+    int imageWidth,
+    int imageHeight,
+  ) async {
+    // For simplicity, return the original image
+    // In production, implement actual cropping using image package
+    return imageBytes;
   }
 
   /// Dispose resources

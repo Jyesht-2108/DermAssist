@@ -6,12 +6,16 @@ class Skin3DViewer extends StatefulWidget {
   final double confidence;
   final String riskLevel;
   final Color riskColor;
+  final List<List<double>>? heatmapGrid;
+  final String? predictedClass;
 
   const Skin3DViewer({
     super.key,
     required this.confidence,
     required this.riskLevel,
     required this.riskColor,
+    this.heatmapGrid,
+    this.predictedClass,
   });
 
   @override
@@ -23,6 +27,8 @@ class _Skin3DViewerState extends State<Skin3DViewer>
   late AnimationController _controller;
   double _rotationX = 0.3;
   double _rotationY = 0.0;
+  Offset? _selectedHotspot;
+  double? _selectedIntensity;
 
   @override
   void initState() {
@@ -39,6 +45,41 @@ class _Skin3DViewerState extends State<Skin3DViewer>
     super.dispose();
   }
 
+  void _handleTap(TapDownDetails details, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final tapPos = details.localPosition;
+    final distance = (tapPos - center).distance;
+    final radius = size.width * 0.35;
+
+    // Check if tap is within sphere
+    if (distance < radius * 1.2 && widget.heatmapGrid != null) {
+      // Convert tap position to heatmap coordinates
+      final gridSize = widget.heatmapGrid!.length;
+      final normalizedX = ((tapPos.dx - center.dx) / radius + 1) / 2;
+      final normalizedY = ((tapPos.dy - center.dy) / radius + 1) / 2;
+      
+      final gridX = (normalizedX * gridSize).clamp(0, gridSize - 1).toInt();
+      final gridY = (normalizedY * gridSize).clamp(0, gridSize - 1).toInt();
+      
+      final intensity = widget.heatmapGrid![gridY][gridX];
+      
+      setState(() {
+        _selectedHotspot = tapPos;
+        _selectedIntensity = intensity;
+      });
+
+      // Auto-hide after 3 seconds
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _selectedHotspot = null;
+            _selectedIntensity = null;
+          });
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -49,19 +90,77 @@ class _Skin3DViewerState extends State<Skin3DViewer>
           _rotationX = _rotationX.clamp(-math.pi / 2, math.pi / 2);
         });
       },
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return CustomPaint(
-            size: const Size(300, 300),
-            painter: Skin3DPainter(
-              rotationX: _rotationX,
-              rotationY: _rotationY + _controller.value * 2 * math.pi,
-              confidence: widget.confidence,
-              riskColor: widget.riskColor,
+      onTapDown: (details) => _handleTap(details, const Size(300, 300)),
+      child: Stack(
+        children: [
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return CustomPaint(
+                size: const Size(300, 300),
+                painter: Skin3DPainter(
+                  rotationX: _rotationX,
+                  rotationY: _rotationY + _controller.value * 2 * math.pi,
+                  confidence: widget.confidence,
+                  riskColor: widget.riskColor,
+                  heatmapGrid: widget.heatmapGrid,
+                ),
+              );
+            },
+          ),
+          // Hotspot info popup
+          if (_selectedHotspot != null && _selectedIntensity != null)
+            Positioned(
+              left: _selectedHotspot!.dx - 60,
+              top: _selectedHotspot!.dy - 80,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.predictedClass ?? 'Unknown',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Intensity: ${(_selectedIntensity! * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 11,
+                      ),
+                    ),
+                    Text(
+                      'Confidence: ${(widget.confidence * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          );
-        },
+        ],
       ),
     );
   }
@@ -72,12 +171,14 @@ class Skin3DPainter extends CustomPainter {
   final double rotationY;
   final double confidence;
   final Color riskColor;
+  final List<List<double>>? heatmapGrid;
 
   Skin3DPainter({
     required this.rotationX,
     required this.rotationY,
     required this.confidence,
     required this.riskColor,
+    this.heatmapGrid,
   });
 
   @override
@@ -114,14 +215,35 @@ class Skin3DPainter extends CustomPainter {
 
         points.add(projected);
 
-        // Color based on confidence and position
-        final intensity = (math.cos(theta) + 1) / 2;
-        final colorIntensity = confidence * intensity;
-        colors.add(Color.lerp(
-          Colors.blue.shade100,
-          riskColor,
-          colorIntensity,
-        )!);
+        // Color based on heatmap if available, otherwise use confidence
+        Color pointColor;
+        if (heatmapGrid != null) {
+          // Map sphere coordinates to heatmap grid
+          final gridSize = heatmapGrid!.length;
+          final u = lon / longitudes;
+          final v = lat / latitudes;
+          final gridX = (u * gridSize).clamp(0, gridSize - 1).toInt();
+          final gridY = (v * gridSize).clamp(0, gridSize - 1).toInt();
+          final heatValue = heatmapGrid![gridY][gridX];
+          
+          // Map heatmap value to color (blue → green → yellow → red)
+          pointColor = _heatmapValueToColor(heatValue);
+          
+          // Add glow for high intensity areas
+          if (heatValue > 0.7) {
+            pointColor = Color.lerp(pointColor, Colors.white, 0.3)!;
+          }
+        } else {
+          // Fallback to original coloring
+          final intensity = (math.cos(theta) + 1) / 2;
+          final colorIntensity = confidence * intensity;
+          pointColor = Color.lerp(
+            Colors.blue.shade100,
+            riskColor,
+            colorIntensity,
+          )!;
+        }
+        colors.add(pointColor);
       }
     }
 
@@ -190,6 +312,26 @@ class Skin3DPainter extends CustomPainter {
     final z2 = -x * sinY + z1 * cosY;
 
     return vector.Vector3(x2, y1, z2);
+  }
+
+  Color _heatmapValueToColor(double value) {
+    if (value < 0.25) {
+      // Blue to Cyan
+      final t = value / 0.25;
+      return Color.fromRGBO(0, (t * 255).toInt(), 255, 0.9);
+    } else if (value < 0.5) {
+      // Cyan to Green
+      final t = (value - 0.25) / 0.25;
+      return Color.fromRGBO(0, 255, (255 * (1 - t)).toInt(), 0.9);
+    } else if (value < 0.75) {
+      // Green to Yellow
+      final t = (value - 0.5) / 0.25;
+      return Color.fromRGBO((t * 255).toInt(), 255, 0, 0.9);
+    } else {
+      // Yellow to Red
+      final t = (value - 0.75) / 0.25;
+      return Color.fromRGBO(255, (255 * (1 - t)).toInt(), 0, 0.9);
+    }
   }
 
   @override
