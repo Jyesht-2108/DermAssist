@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../state/app_state.dart';
 import '../../ml/inference_service.dart';
+import '../components/glass_card.dart';
+import '../components/particle_background.dart';
 import 'camera_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -16,150 +19,277 @@ class HomeScreen extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.blue.shade50,
-              Colors.white,
-              Colors.blue.shade50,
+              const Color(0xFF667eea),
+              const Color(0xFF764ba2),
+              Colors.blue.shade900,
             ],
           ),
         ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 40),
-                
-                // App Title
-                const Text(
-                  'DermAssist',
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'AI-Powered Skin Analysis',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                
-                const Spacer(),
-                
-                // Main illustration placeholder
-                Center(
-                  child: Container(
-                    width: 200,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      shape: BoxShape.circle,
+        child: ParticleBackground(
+          particleCount: 60,
+          particleColor: Colors.white.withValues(alpha: 0.4),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 40),
+                  
+                  // App Title with glow
+                  const Text(
+                    'DermAssist',
+                    style: TextStyle(
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 1,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black26,
+                          offset: Offset(0, 4),
+                          blurRadius: 10,
+                        ),
+                      ],
                     ),
-                    child: Icon(
-                      Icons.health_and_safety,
-                      size: 100,
-                      color: Colors.blue.shade700,
+                  )
+                      .animate()
+                      .fadeIn(duration: 600.ms)
+                      .slideX(begin: -0.2, end: 0),
+                  
+                  const SizedBox(height: 8),
+                  
+                  const Text(
+                    'AI-Powered Skin Analysis',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.white70,
+                      letterSpacing: 0.5,
                     ),
-                  ),
-                ),
+                  )
+                      .animate()
+                      .fadeIn(duration: 600.ms, delay: 200.ms)
+                      .slideX(begin: -0.2, end: 0),
                 
-                const Spacer(),
-                
-                // Status indicator
-                Consumer<AppState>(
-                  builder: (context, appState, child) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
+                  const Spacer(),
+                  
+                  // Main illustration with 3D effect
+                  Center(
+                    child: Container(
+                      width: 240,
+                      height: 240,
                       decoration: BoxDecoration(
-                        color: appState.isModelLoaded
-                            ? Colors.green.shade50
-                            : Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            appState.isModelLoaded
-                                ? Icons.check_circle
-                                : Icons.hourglass_empty,
-                            color: appState.isModelLoaded
-                                ? Colors.green
-                                : Colors.orange,
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.3),
+                            Colors.blue.withValues(alpha: 0.2),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.blue.withValues(alpha: 0.4),
+                            blurRadius: 60,
+                            spreadRadius: 20,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              appState.isModelLoaded
-                                  ? (InferenceService().isMockMode 
-                                      ? 'Ready (Demo Mode)' 
-                                      : 'AI Model Ready')
-                                  : appState.errorMessage ?? 'Loading model...',
-                              style: TextStyle(
-                                color: appState.isModelLoaded
-                                    ? Colors.green.shade900
-                                    : Colors.orange.shade900,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+                          BoxShadow(
+                            color: Colors.purple.withValues(alpha: 0.3),
+                            blurRadius: 80,
+                            spreadRadius: 30,
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // Scan button
-                Consumer<AppState>(
-                  builder: (context, appState, child) {
-                    return SizedBox(
-                      width: double.infinity,
-                      height: 60,
-                      child: ElevatedButton(
-                        onPressed: appState.isModelLoaded
-                            ? () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const CameraScreen(),
-                                  ),
-                                );
-                              }
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 4,
+                      child: Icon(
+                        Icons.health_and_safety,
+                        size: 120,
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
+                    )
+                        .animate(onPlay: (controller) => controller.repeat())
+                        .scale(
+                          duration: 3000.ms,
+                          begin: const Offset(0.95, 0.95),
+                          end: const Offset(1.05, 1.05),
+                          curve: Curves.easeInOut,
+                        )
+                        .then()
+                        .scale(
+                          duration: 3000.ms,
+                          begin: const Offset(1.05, 1.05),
+                          end: const Offset(0.95, 0.95),
+                          curve: Curves.easeInOut,
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                  )
+                      .animate()
+                      .fadeIn(duration: 800.ms, delay: 400.ms)
+                      .scale(begin: const Offset(0.8, 0.8), end: const Offset(1, 1)),
+                  
+                  const Spacer(),
+                
+                  // Status indicator with glassmorphism
+                  Consumer<AppState>(
+                    builder: (context, appState, child) {
+                      return GlassCard(
+                        blur: 15,
+                        opacity: 0.15,
+                        child: Row(
                           children: [
-                            Icon(Icons.camera_alt, size: 28),
-                            SizedBox(width: 12),
-                            Text(
-                              'Scan Skin',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: appState.isModelLoaded
+                                    ? Colors.green.withValues(alpha: 0.2)
+                                    : Colors.orange.withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                appState.isModelLoaded
+                                    ? Icons.check_circle
+                                    : Icons.hourglass_empty,
+                                color: appState.isModelLoaded
+                                    ? Colors.greenAccent
+                                    : Colors.orangeAccent,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    appState.isModelLoaded
+                                        ? (InferenceService().isMockMode 
+                                            ? 'Demo Mode Active' 
+                                            : 'AI Model Ready')
+                                        : 'Initializing...',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    appState.isModelLoaded
+                                        ? 'Ready to analyze'
+                                        : appState.errorMessage ?? 'Loading model...',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.7),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      )
+                          .animate()
+                          .fadeIn(duration: 600.ms, delay: 600.ms)
+                          .slideY(begin: 0.2, end: 0);
+                    },
+                  ),
                 
-                const SizedBox(height: 40),
-              ],
+                  const SizedBox(height: 24),
+                  
+                  // Scan button with stunning design
+                  Consumer<AppState>(
+                    builder: (context, appState, child) {
+                      return Container(
+                        width: double.infinity,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: appState.isModelLoaded
+                              ? LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.white.withValues(alpha: 0.9),
+                                    Colors.blue.shade100.withValues(alpha: 0.8),
+                                  ],
+                                )
+                              : LinearGradient(
+                                  colors: [
+                                    Colors.grey.withValues(alpha: 0.3),
+                                    Colors.grey.withValues(alpha: 0.2),
+                                  ],
+                                ),
+                          boxShadow: appState.isModelLoaded
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.white.withValues(alpha: 0.5),
+                                    blurRadius: 30,
+                                    spreadRadius: 5,
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.blue.withValues(alpha: 0.3),
+                                    blurRadius: 40,
+                                    spreadRadius: 10,
+                                  ),
+                                ]
+                              : [],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: appState.isModelLoaded
+                                ? () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const CameraScreen(),
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            borderRadius: BorderRadius.circular(20),
+                            child: Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.camera_alt_rounded,
+                                    size: 32,
+                                    color: appState.isModelLoaded
+                                        ? Colors.blue.shade700
+                                        : Colors.grey,
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Text(
+                                    'Scan Skin',
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: appState.isModelLoaded
+                                          ? Colors.blue.shade700
+                                          : Colors.grey,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                          .animate()
+                          .fadeIn(duration: 600.ms, delay: 800.ms)
+                          .slideY(begin: 0.3, end: 0)
+                          .then(delay: 200.ms)
+                          .shimmer(
+                            duration: 2000.ms,
+                            color: Colors.white.withValues(alpha: 0.3),
+                          );
+                    },
+                  ),
+                  
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),
