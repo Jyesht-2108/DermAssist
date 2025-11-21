@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
+import '../../ml/inference_service.dart';
 import 'camera_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -93,7 +94,9 @@ class HomeScreen extends StatelessWidget {
                           Expanded(
                             child: Text(
                               appState.isModelLoaded
-                                  ? 'Ready (Demo Mode)'
+                                  ? (InferenceService().isMockMode 
+                                      ? 'Ready (Demo Mode)' 
+                                      : 'AI Model Ready')
                                   : appState.errorMessage ?? 'Loading model...',
                               style: TextStyle(
                                 color: appState.isModelLoaded

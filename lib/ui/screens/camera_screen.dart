@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../services/camera_service.dart';
 import '../../ml/inference_service.dart';
 import '../../state/app_state.dart';
+import 'results_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -75,12 +76,15 @@ class _CameraScreenState extends State<CameraScreen> {
       appState.setResult(result);
 
       if (result != null && mounted) {
-        // Show results
-        _showSuccess(
-          'Analysis complete!\n'
-          'Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%\n'
-          'Time: ${result.inferenceTimeMs}ms'
+        // Navigate to results screen
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResultsScreen(result: result),
+          ),
         );
+        // Reset processing state after returning
+        appState.setProcessing(false);
       } else {
         _showError('Analysis failed - please try again');
       }
@@ -96,17 +100,6 @@ class _CameraScreenState extends State<CameraScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
-      ),
-    );
-  }
-
-  void _showSuccess(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
       ),
     );
   }

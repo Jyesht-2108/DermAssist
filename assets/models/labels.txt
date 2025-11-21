@@ -1,0 +1,7 @@
+Actinic Keratosis
+Basal Cell Carcinoma
+Benign Keratosis
+Dermatofibroma
+Melanoma
+Nevus (Mole)
+Vascular Lesion

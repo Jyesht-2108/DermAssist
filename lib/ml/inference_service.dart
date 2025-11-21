@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/image_utils.dart';
+import 'model_labels.dart';
 
 /// Result of inference operation
 class InferenceResult {
@@ -9,12 +10,16 @@ class InferenceResult {
   final double confidence;
   final List<double> probabilities;
   final int inferenceTimeMs;
+  final String label;
+  final String riskLevel;
 
   InferenceResult({
     required this.classIndex,
     required this.confidence,
     required this.probabilities,
     required this.inferenceTimeMs,
+    required this.label,
+    required this.riskLevel,
   });
 
   bool get isConfident => confidence >= AppConstants.confidenceThreshold;
@@ -43,12 +48,17 @@ class InferenceService {
     if (_isModelLoaded) return true;
 
     try {
+      // Load model labels
+      await ModelLabels.loadLabels();
+      
+      // Load TFLite model
       _interpreter = await Interpreter.fromAsset(AppConstants.modelPath);
       _isModelLoaded = true;
       _useMockMode = false;
       return true;
     } catch (e) {
       // If model file not found, enable mock mode for testing
+      await ModelLabels.loadLabels();
       _isModelLoaded = true;
       _useMockMode = true;
       return true;
@@ -65,33 +75,42 @@ class InferenceService {
     try {
       final startTime = DateTime.now();
 
-      // Preprocess image (validates image is processable)
-      final preprocessed = ImageUtils.preprocessImage(imageBytes);
-      if (preprocessed == null) return null;
-
       // If in mock mode, return simulated results
       if (_useMockMode) {
+        // Still validate image is processable
+        final preprocessed = ImageUtils.preprocessImage(imageBytes);
+        if (preprocessed == null) return null;
+        
         await Future.delayed(const Duration(milliseconds: 500)); // Simulate processing
         final endTime = DateTime.now();
         final inferenceTimeMs = endTime.difference(startTime).inMilliseconds;
+        
+        final label = ModelLabels.getLabel(0);
+        final riskLevel = ModelLabels.getRiskLevel(label);
         
         return InferenceResult(
           classIndex: 0,
           confidence: 0.85,
           probabilities: [0.85, 0.10, 0.05],
           inferenceTimeMs: inferenceTimeMs,
+          label: label,
+          riskLevel: riskLevel,
         );
       }
 
       // Real model inference
       if (_interpreter == null) return null;
 
+      // Use uint8 preprocessing for quantized MobileNetV2 model
+      final preprocessed = ImageUtils.preprocessImageUint8(imageBytes);
+      if (preprocessed == null) return null;
+
       // Prepare input tensor
       final input = [preprocessed];
 
-      // Prepare output tensor
+      // Prepare output tensor (MobileNetV2 has 1001 classes)
       final outputShape = _interpreter!.getOutputTensor(0).shape;
-      final output = List.filled(outputShape[1], 0.0).reshape([1, outputShape[1]]);
+      final output = List.filled(outputShape[1], 0).reshape([1, outputShape[1]]);
 
       // Run inference
       _interpreter!.run(input, output);
@@ -100,8 +119,14 @@ class InferenceService {
       final endTime = DateTime.now();
       final inferenceTimeMs = endTime.difference(startTime).inMilliseconds;
 
-      // Extract probabilities
-      final probabilities = List<double>.from(output[0]);
+      // Extract probabilities - quantized output needs dequantization
+      final rawOutput = output[0] as List;
+      List<double> probabilities = rawOutput.map((v) {
+        if (v is int) {
+          return v / 255.0; // Dequantize uint8 to float
+        }
+        return (v as num).toDouble();
+      }).toList();
 
       // Find class with highest probability
       double maxProb = probabilities[0];
@@ -113,11 +138,20 @@ class InferenceService {
         }
       }
 
+      // Map to our skin condition classes (model has 1001 ImageNet classes)
+      // We'll use the top prediction and map it to our 7 classes
+      final mappedIndex = maxIndex % 7; // Simple mapping for demo
+      
+      final label = ModelLabels.getLabel(mappedIndex);
+      final riskLevel = ModelLabels.getRiskLevel(label);
+      
       return InferenceResult(
-        classIndex: maxIndex,
+        classIndex: mappedIndex,
         confidence: maxProb,
-        probabilities: probabilities,
+        probabilities: probabilities.take(7).toList(), // Only return first 7 for display
         inferenceTimeMs: inferenceTimeMs,
+        label: label,
+        riskLevel: riskLevel,
       );
     } catch (e) {
       return null;

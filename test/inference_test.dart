@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:derm_assist/ml/inference_service.dart';
-import 'dart:typed_data';
 
 void main() {
   test('InferenceService loads in mock mode', () async {
