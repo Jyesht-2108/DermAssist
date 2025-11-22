@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../ml/inference_service.dart';
 import '../../ml/model_labels.dart';
+import '../../services/pdf_report_service.dart';
 import '../components/glass_card.dart';
 import '../components/skin_3d_viewer.dart';
 import '../components/particle_background.dart';
@@ -28,11 +31,154 @@ class _ResultsScreenState extends State<ResultsScreen> {
   bool _showHeatmap = false;
   double _heatmapOpacity = 0.6;
   final ValueNotifier<Offset?> _selectedPointNotifier = ValueNotifier<Offset?>(null);
+  final GlobalKey viewer3dKey = GlobalKey();
+  bool _isGeneratingPdf = false;
 
   @override
   void dispose() {
     _selectedPointNotifier.dispose();
     super.dispose();
+  }
+
+  Future<void> _generatePdfReport() async {
+    setState(() {
+      _isGeneratingPdf = true;
+    });
+
+    try {
+      // Capture 3D viewer snapshot if available
+      Uint8List? snapshot3D;
+      try {
+        final boundary = viewer3dKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 2.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          snapshot3D = byteData?.buffer.asUint8List();
+        }
+      } catch (e) {
+        // If 3D snapshot fails, continue without it
+        debugPrint('Failed to capture 3D snapshot: $e');
+      }
+
+      // Capture heatmap image if available
+      Uint8List? heatmapImage;
+      if (widget.result.heatmap != null && widget.originalImage != null) {
+        heatmapImage = widget.result.heatmap!.imageBytes;
+      }
+
+      // Generate the PDF
+      final pdfFile = await PdfReportService.generateReport(
+        result: widget.result,
+        originalImage: widget.originalImage!,
+        heatmapImage: heatmapImage,
+        snapshot3D: snapshot3D,
+      );
+
+      setState(() {
+        _isGeneratingPdf = false;
+      });
+
+      // Show success dialog with options
+      if (mounted) {
+        _showReportGeneratedDialog(pdfFile.path);
+      }
+    } catch (e) {
+      setState(() {
+        _isGeneratingPdf = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to generate report: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showReportGeneratedDialog(String filePath) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 28),
+            const SizedBox(width: 12),
+            const Text('Report Generated'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your professional PDF report has been generated successfully.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.folder, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      filePath.split('/').last,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Location: Documents/DermAssist/',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Share.shareXFiles(
+                [XFile(filePath)],
+                subject: 'DermAssist Analysis Report',
+              );
+            },
+            icon: const Icon(Icons.share),
+            label: const Text('Share'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -103,14 +249,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              Skin3DViewer(
-                                confidence: widget.result.confidence,
-                                riskLevel: widget.result.riskLevel,
-                                riskColor: riskColor,
-                                heatmapGrid: widget.result.heatmap?.grid,
-                                predictedClass: widget.result.label,
-                                capturedImage: widget.originalImage,
-                                selectedPointNotifier: _selectedPointNotifier,
+                              RepaintBoundary(
+                                key: viewer3dKey,
+                                child: Skin3DViewer(
+                                  confidence: widget.result.confidence,
+                                  riskLevel: widget.result.riskLevel,
+                                  riskColor: riskColor,
+                                  heatmapGrid: widget.result.heatmap?.grid,
+                                  predictedClass: widget.result.label,
+                                  capturedImage: widget.originalImage,
+                                  selectedPointNotifier: _selectedPointNotifier,
+                                ),
                               ),
                               const SizedBox(height: 10),
                               Text(
@@ -460,6 +609,88 @@ class _ResultsScreenState extends State<ResultsScreen> {
                             .fadeIn(duration: 600.ms, delay: 600.ms),
 
                         const SizedBox(height: 24),
+
+                        // Generate Report Button
+                        if (widget.originalImage != null)
+                          Container(
+                            width: double.infinity,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.green.shade600.withValues(alpha: 0.9),
+                                  Colors.teal.shade600.withValues(alpha: 0.8),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.green.withValues(alpha: 0.3),
+                                  blurRadius: 20,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _isGeneratingPdf ? null : _generatePdfReport,
+                                borderRadius: BorderRadius.circular(20),
+                                child: Center(
+                                  child: _isGeneratingPdf
+                                      ? Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            SizedBox(
+                                              width: 24,
+                                              height: 24,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.5,
+                                                valueColor: AlwaysStoppedAnimation<Color>(
+                                                  Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Text(
+                                              'Generating Report...',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.picture_as_pdf_rounded,
+                                              color: Colors.white,
+                                              size: 28,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Text(
+                                              'Generate PDF Report',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+                          )
+                              .animate()
+                              .fadeIn(duration: 600.ms, delay: 700.ms)
+                              .slideY(begin: 0.3, end: 0),
+
+                        if (widget.originalImage != null)
+                          const SizedBox(height: 16),
 
                         // Action Button
                         Container(

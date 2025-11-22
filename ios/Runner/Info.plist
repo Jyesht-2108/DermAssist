@@ -47,5 +47,11 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>DermAssist needs camera access to capture skin images for analysis</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DermAssist needs access to save PDF reports to your photo library</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
