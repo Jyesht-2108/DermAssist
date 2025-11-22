@@ -11,6 +11,7 @@ import '../../services/pdf_report_service.dart';
 import '../components/glass_card.dart';
 import '../components/skin_3d_viewer.dart';
 import '../components/particle_background.dart';
+import '../components/motion_parallax.dart';
 import 'multi_region_screen.dart';
 
 class ResultsScreen extends StatefulWidget {
@@ -233,12 +234,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     padding: const EdgeInsets.all(20.0),
                     child: Column(
                       children: [
-                        // 3D Skin Visualization
-                        GlassCard(
-                          blur: 20,
-                          opacity: 0.15,
-                          padding: const EdgeInsets.all(30),
-                          child: Column(
+                        // 3D Skin Visualization with parallax
+                        MotionParallax(
+                          intensity: 1.0,
+                          enableBlur: true,
+                          maxBlur: 1.5,
+                          child: GlassCard(
+                            blur: 20,
+                            opacity: 0.15,
+                            padding: const EdgeInsets.all(30),
+                            child: Column(
                             children: [
                               const Text(
                                 '3D Skin Analysis',
@@ -271,20 +276,23 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               ),
                             ],
                           ),
-                        )
-                            .animate()
-                            .fadeIn(duration: 600.ms, delay: 200.ms)
-                            .scale(begin: const Offset(0.9, 0.9)),
+                          )
+                              .animate()
+                              .fadeIn(duration: 600.ms, delay: 200.ms)
+                              .scale(begin: const Offset(0.9, 0.9)),
+                        ),
 
                         const SizedBox(height: 24),
 
-                        // Heatmap Overlay Section
+                        // Heatmap Overlay Section with parallax
                         if (widget.result.heatmap != null && widget.originalImage != null)
-                          GlassCard(
-                            blur: 20,
-                            opacity: 0.15,
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
+                          MotionParallax(
+                            intensity: 0.8,
+                            child: GlassCard(
+                              blur: 20,
+                              opacity: 0.15,
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
                               children: [
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -411,15 +419,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               .animate()
                               .fadeIn(duration: 600.ms, delay: 300.ms)
                               .slideY(begin: 0.2, end: 0),
+                        ),
 
                         if (widget.result.heatmap != null && widget.originalImage != null)
                           const SizedBox(height: 24),
 
-                        // Condition Card
-                        GlassCard(
-                          blur: 20,
-                          opacity: 0.15,
-                          child: Column(
+                        // Condition Card with parallax
+                        MotionParallax(
+                          intensity: 0.6,
+                          child: GlassCard(
+                            blur: 20,
+                            opacity: 0.15,
+                            child: Column(
                             children: [
                               // Risk Badge
                               Container(
@@ -571,11 +582,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                 ],
                               ),
                             ],
-                          ),
-                        )
-                            .animate()
-                            .fadeIn(duration: 600.ms, delay: 400.ms)
-                            .slideY(begin: 0.2, end: 0),
+                            ),
+                          )
+                              .animate()
+                              .fadeIn(duration: 600.ms, delay: 400.ms)
+                              .slideY(begin: 0.2, end: 0),
+                        ),
 
                         const SizedBox(height: 24),
 

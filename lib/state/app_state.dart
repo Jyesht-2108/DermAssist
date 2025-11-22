@@ -7,11 +7,13 @@ class AppState extends ChangeNotifier {
   bool _isProcessing = false;
   InferenceResult? _lastResult;
   String? _errorMessage;
+  bool _motionEffectsEnabled = true;
 
   bool get isModelLoaded => _isModelLoaded;
   bool get isProcessing => _isProcessing;
   InferenceResult? get lastResult => _lastResult;
   String? get errorMessage => _errorMessage;
+  bool get motionEffectsEnabled => _motionEffectsEnabled;
 
   /// Initialize app state
   Future<void> initialize() async {
@@ -53,6 +55,12 @@ class AppState extends ChangeNotifier {
     _lastResult = null;
     _errorMessage = null;
     _isProcessing = false;
+    notifyListeners();
+  }
+
+  /// Toggle motion effects
+  void setMotionEffects(bool enabled) {
+    _motionEffectsEnabled = enabled;
     notifyListeners();
   }
 }
